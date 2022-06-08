@@ -209,10 +209,12 @@ class AttentionCritic(nn.Module):
         ########### TODO: extend the cluster attentions to agent attentions  ###########
         clst_logits_extended = [[] for i in range(self.nagents)]
         clst_probs_extended = [[] for i in range(self.nagents)]
+        clst_values_extended = [[] for i in range(self.nagents)]
 
         # templated for attend_logits, attend_probs
         temp_logits = torch.ones_like(agent_attend_logits[0][0])
         temp_probs = torch.ones_like(agent_attend_probs[0][0])
+        temp_values = torch.ones_like(agent_attention_values[0][0])
 
         for i in range(self.nagents):
             for j in range(self.attend_heads):
@@ -224,6 +226,7 @@ class AttentionCritic(nn.Module):
                 # must copy and append
                 clst_logits_extended[i].append(temp_logits.detach().clone())
                 clst_probs_extended[i].append(temp_probs.detach().clone())
+                clst_values_extended[i].append(temp_values.detach().clone())
 
         # Extend the cluster attentions to agent attentions 
         # (in order to match the dimensions for later computation: combine agents & cluster attention)
@@ -257,38 +260,19 @@ class AttentionCritic(nn.Module):
                             # clst_probs_extended[a_c][i_head][:, :, c_agent] = clst_attend_probs[clst_idx][i_head][:, :, other_clst]
                             clst_probs_extended[current_agent][i_head][:, :, other_agent] = clst_attend_probs[current_clst][i_head][:, :, other_clst]
                             clst_logits_extended[current_agent][i_head][:, :, other_agent] = clst_attend_logits[current_clst][i_head][:, :, other_clst]
+                            clst_values_extended[current_agent][i_head][:, :, other_agent] = clst_attention_values[current_clst][i_head][:, :, other_clst]
                             # Why not 1? Shouldn't clst_probs_extended[0][0][0][0][0~4] be changed and stay as 1?
         ########### TODO: extend the cluster attentions to agent attentions  ###########
 
-        '''add agent_attention_values and clst_attention_values (05/28)'''
-        # tot_attention_values = []
         tot_attend_logits = [[] for i in range(self.nagents)]
         tot_attend_probs = [[] for i in range(self.nagents)]
         tot_attention_values = [[] for i in range(self.nagents)]
 
-        # Combine agents & cluster attention - use cluster attention_probs as multipliers to the agent attention_probs
-        for i_heads in range(self.attend_heads):
-            for agentN in self.agents:
-                # clst_idx = [clst for clst, clst_agents in self.cluster_list.items() if agentN in clst_agents][0]
-
-                '''TODO: How to add attend_log of agents and cluster?'''
-                tot_attend_prob = agent_attend_probs[agentN][i_heads] * torch.exp(1 + clst_probs_extended[agentN][i_heads])
-                tot_attend_prob = F.softmax(tot_attend_prob, dim=2)
-
-                tot_attend_probs[agentN].append(tot_attend_prob)
-
-        # calculate tot_attention_value with tot_attend_logits, tot_attend_probs
-        for i_head, curr_head_keys, curr_head_values, curr_head_selectors in zip(
-                range(len(all_head_selectors)), all_head_selectors, all_head_keys, all_head_values):
-            
-            # iterate over agents
-            for i, a_i, selector in zip(range(len(self.agents)), self.agents, curr_head_selectors):
-                keys = [k for j, k in enumerate(curr_head_keys) if j != a_i]
-                values = [v for j, v in enumerate(curr_head_values) if j != a_i]
-
-                tot_attention_value = (torch.stack(values).permute(1, 2, 0) *
-                                    tot_attend_probs[i][i_head]).sum(dim=2)
-                tot_attention_values[i].append(tot_attention_value)
+        '''add agent_attention_values and clst_attention_values (05/28)'''
+        # tot_attention_values = []
+        tot_attend_logits = clst_logits_extended
+        tot_attend_probs = clst_probs_extended
+        tot_attention_values = clst_values_extended
 
         # calculate Q per agent (considering clusters)
         all_rets = []
